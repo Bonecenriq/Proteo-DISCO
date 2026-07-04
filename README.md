@@ -1,4 +1,4 @@
-# DISCO-SomaScan-Aging
+# Proteo-DISCO
 
 Analysis code for a proteomic characterization of **DISCO (Distance of
 Covariance)**, a Mahalanobis-distance-based multi-organ dysregulation
