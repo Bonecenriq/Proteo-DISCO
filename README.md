@@ -129,10 +129,8 @@ Outputs are written to `results/`, which is created automatically.
 .
 ├── README.md
 ├── LICENSE
-├── CITATION.cff
 ├── .gitignore
 ├── somma_analysis_pipeline.R   # main analysis script (rename as you like)
-├── sessionInfo.txt             # R + package versions (add before publishing)
 └── results/                    # generated on run; not tracked in git
 ```
 
