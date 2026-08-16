@@ -27,8 +27,8 @@ library(GSVA)
 # 2. DATA LOADING & PREPROCESSING
 # =============================================================================
 
-setwd("path/to/project")  # <- set this to your working directory (folder containing the input CSVs)
-dir.create("results", showWarnings = FALSE)
+setwd(" ")
+dir.create("results_v14", showWarnings = FALSE)
 
 # --- 2a. Protein expression (Box-Cox transformed, Parent n=838) ---
 pheno_raw <- readr::read_csv(
@@ -92,7 +92,7 @@ m <- meta_df |>
 
 save(meta_df, meta_sorted, prot_df, prot_sorted,
      disco_vals, sd_disco, m,
-     file = "results/checkpoint_section2.RData")
+     file = "results_v14/checkpoint_section2.RData")
 cat("Checkpoint saved.\n")
 
 
@@ -165,7 +165,7 @@ readr::write_csv(
                   logFC, logFC_perSD,
                   AveExpr, P.Value,
                   adj.P.Val),
-  "results/DEA_continuous_BOX_DISCO.csv"
+  "results_v14/DEA_continuous_BOX_DISCO.csv"
 )
 cat("Saved: DEA_continuous_BOX_DISCO.csv\n")
 
@@ -265,9 +265,9 @@ sections <- c(
   "Non-elective hospitalization, n (%)" = "Clinical Outcome"
 )
 
-# Save CSV
+# CSV 저장
 readr::write_csv(tbl1_df,
-                 "results/Table1_baseline.csv")
+                 "results_v14/Table1_baseline.csv")
 cat("Saved: Table1_baseline.csv\n")
 
 # Figure version (ggplot table)
@@ -303,7 +303,7 @@ p_tbl1 <- ggplot(
       margin = margin(b=4))
   )
 
-png("results/Table1_baseline.png",
+png("results_v14/Table1_baseline.png",
     width  = 120 / 25.4,
     height = 200 / 25.4,
     units  = "in", res = 200)
@@ -324,7 +324,7 @@ use_openxlsx <- .have("openxlsx")
 use_writexl  <- !use_openxlsx && .have("writexl")
 if (.have("FSA")) suppressMessages(require(FSA))   # optional: proper Dunn's test
 
-out_dir <- "results"
+out_dir <- "results_v14"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---- 1. Data ----------------------------------------------------------------
@@ -593,7 +593,13 @@ cat("\n--- Table 1 preview ---\n"); print(tab_df, row.names = FALSE)
 
 
 # =============================================================================
-# FIGURE 2: PHENOTYPE ASSOCIATION & SUPPLEMENTARY FIGURE 1
+# FIGURE 2: PHENOTYPE ASSOCIATION & SUPPLEMENTARY FIGURE 1   [v9 - full]
+#   1) "VO2 peak" -> "VO2peak" (no space; ggtext subscript)
+#   2) "Mitochondrial function" -> "Energetic capacity and efficiency"
+#   3) Panel b: "P for trend < 0.001 for all outcomes" note inside
+#      the green (Physical performance) band
+#   4) FIX: explicit scale_y_discrete() (avoids "Discrete value
+#      supplied to a continuous scale")
 # =============================================================================
 
 # --- 5a. get_std_beta function ---
@@ -643,6 +649,28 @@ get_std_beta <- function(outcome_var, data,
   )
 }
 
+# --- 5a-2. P-for-trend (quartile as ordinal 1-4) ---
+get_p_trend <- function(outcome_var, data,
+                        extra_str = "") {
+  data2 <- data |>
+    dplyr::filter(!is.na(.data[[outcome_var]]),
+                  !is.na(BOX_DISCO_JR_Q)) |>
+    dplyr::mutate(
+      Q_num     = as.numeric(BOX_DISCO_JR_Q),
+      GDF15_std = (SOGDF15 - mean(SOGDF15, na.rm=TRUE)) /
+        sd(SOGDF15, na.rm=TRUE),
+      CysC_std  = (SOCYSC - mean(SOCYSC, na.rm=TRUE)) /
+        sd(SOCYSC, na.rm=TRUE)
+    )
+  fml <- as.formula(paste0(
+    outcome_var, " ~ Q_num + D1AGE2 + EEFEMALE + ",
+    "SITE + HWWGT + HWHGT",
+    if (nchar(extra_str) > 0)
+      paste0(" + ", extra_str) else ""))
+  cf <- summary(lm(fml, data = data2))$coefficients
+  cf["Q_num", "Pr(>|t|)"]
+}
+
 # --- Outcome lists ---
 outcomes_all <- list(
   VO2    = "TTPKVO2U",
@@ -656,33 +684,53 @@ outcomes_all <- list(
   GDF15  = "SOGDF15",
   CysC   = "SOCYSC"
 )
-
 outcomes_main <- outcomes_all[
   !names(outcomes_all) %in% c("GDF15","CysC")]
 
+# ── CHANGE 1: "VO2 peak" -> "VO2peak" ────────────────────────
+
+use_md <- requireNamespace("ggtext", quietly = TRUE)
+
+lab_vo2  <- if (use_md) "VO<sub>2</sub>peak (mL/min)" else
+  "VO\u2082peak (mL/min)"
+lab_dsst <- if (use_md)
+  "DSST score (0-133)<br>(Lower = poorer cognition)" else
+    "DSST score (0-133)\n(Lower = poorer cognition)"
+lab_vf   <- if (use_md)
+  "Vigor-to-Frailty (0-12)<br>(Higher = more frail)" else
+    "Vigor-to-Frailty (0-12)\n(Higher = more frail)"
+
+# y element (markdown element_markdown)
+axis_y_elem <- if (use_md)
+  ggtext::element_markdown(size = 8.5, lineheight = 0.95) else
+    element_text(size = 8.5)
+
 outcome_labels <- c(
-  VO2    = "VO\u2082 peak (mL/min)",
+  VO2    = lab_vo2,
   Speed  = "Walking speed (m/s)",
   Power  = "Leg peak power (W)",
   Steps  = "Daily step count",
-  Digit  = "DSST score (0-133)\n(Lower = poorer cognition)",
-  VF     = "Vigor-to-Frailty (0-12)\n(Higher = more frail)",
+  Digit  = lab_dsst,
+  VF     = lab_vf,
   OxPhos = "Max OxPhos (pmol/s/mg)",
   CCR    = "Cost-capacity ratio (%)",
   GDF15  = "GDF-15 (log)",
   CysC   = "Cystatin-C (log)"
 )
-
 outcome_order <- c(
-  "VO\u2082 peak (mL/min)",
+  lab_vo2,                            # <- CHANGE 1
   "Walking speed (m/s)",
   "Leg peak power (W)",
   "Daily step count",
-  "DSST score (0-133)\n(Lower = poorer cognition)",
-  "Vigor-to-Frailty (0-12)\n(Higher = more frail)",
+  lab_dsst,
+  lab_vf,
   "Max OxPhos (pmol/s/mg)",
   "Cost-capacity ratio (%)"
 )
+
+# ── CHANGE 2: domain name ───────────────────────────────────
+#   "Mitochondrial function" -> "Energetic capacity and efficiency"
+DOMAIN_ENERGY <- "Energetic capacity and efficiency"
 
 # --- Compute std_df2 ---
 std_df2 <- lapply(names(outcomes_all),
@@ -703,16 +751,16 @@ std_df2 <- lapply(names(outcomes_all),
       outcome %in% c("Digit","VF") ~
         "Cognitive & frailty",
       outcome %in% c("OxPhos","CCR") ~
-        "Mitochondrial function",
+        DOMAIN_ENERGY,                      # <- CHANGE 2
       TRUE ~ "Biomarker"),
-    # ── Fix: character first, then factor conversion ──────────────
+    # ── character 먼저 → factor 변환 ──────────────
     outcome_label = outcome_labels[outcome],  # character
     outcome_label = factor(
       outcome_label,
       levels = c(
-        rev(outcome_order),     # existing 8 (for panel b)
-        "GDF-15 (log)",         # added
-        "Cystatin-C (log)"      # added
+        rev(outcome_order),     # 기존 8개 (panel b용)
+        "GDF-15 (log)",
+        "Cystatin-C (log)"
       )
     )
   )
@@ -731,10 +779,11 @@ std_df2 |>
 
 # --- Color/shape settings ---
 domain_colors <- c(
-  "Physical performance"       = "#0F6E56",
-  "Cognitive & frailty"   = "#534AB7",
-  "Mitochondrial function" = "#BA7517"
+  "Physical performance"              = "#0F6E56",
+  "Cognitive & frailty"               = "#534AB7",
+  "Energetic capacity and efficiency" = "#BA7517"   # <- CHANGE 2
 )
+
 q_colors_main <- c("Q2"="#74C476","Q3"="#FD8D3C","Q4"="#D73027")
 q_fills_bio    <- c("Q2"="#74C476","Q3"="#FD8D3C","Q4"="#D73027")
 q_shapes_v5  <- c("Q2"=21, "Q3"=24, "Q4"=23)
@@ -745,13 +794,14 @@ q_colors_scatter <- c(
   "4" = "#D73027"   # red    (Q4 highest)
 )
 
+# ── CHANGE 2: in-panel domain label ─────────────────────────
 domain_label_df <- data.frame(
   y     = c(1.5, 3.5, 6.5),
-  label = c("Mitochondrial\nfunction",
+  label = c("Energetic capacity\n& efficiency",  # <- CHANGE 2
             "Cognitive &\nfrailty",
             "Physical\nperformance"),
   color = unname(domain_colors[c(
-    "Mitochondrial function",
+    DOMAIN_ENERGY,
     "Cognitive & frailty",
     "Physical performance")])
 )
@@ -764,26 +814,43 @@ std_main <- std_df2 |>
       levels = c("Q4","Q3","Q2"))
   )
 
-# ── edit: std_bio as.character() add ────────────────────────
+# ── std_bio ─────────────────────────────────────────────────
 std_bio <- std_df2 |>
   dplyr::filter(domain == "Biomarker") |>
   dplyr::mutate(
     outcome_label = factor(
-      as.character(outcome_label),   
+      as.character(outcome_label),
       levels = c("Cystatin-C (log)",
-                 "GDF-15 (log)")    
+                 "GDF-15 (log)")
     ),
     quartile_label = factor(
       paste0("Q", quartile),
       levels = c("Q4","Q3","Q2"))
   )
 
-cat("\n=== std_bio check ===\n")
+cat("\n=== std_bio 확인 ===\n")
 std_bio |>
   dplyr::select(outcome, outcome_label,
                 quartile, beta) |>
   as.data.frame() |>
   print()
+
+# ── ADD: P-for-trend  (8 outcome) ────────────
+ptrend_tbl <- data.frame(
+  outcome = names(outcomes_main),
+  p_trend = vapply(
+    outcomes_main,
+    function(v) get_p_trend(v, m),
+    numeric(1))
+)
+cat("\n=== P for trend (Q1->Q4, adjusted) ===\n")
+print(transform(ptrend_tbl,
+                p_trend = format.pval(p_trend,
+                                      digits = 2,
+                                      eps = 1e-4)),
+      row.names = FALSE)
+cat("All < 0.001? ",
+    all(ptrend_tbl$p_trend < 0.001), "\n")
 
 shared_legend_b <- scale_shape_manual(
   values = q_shapes_v5,
@@ -835,7 +902,7 @@ p_a <- ggplot(
     plot.margin = margin(3,5,3,3,"mm")
   )
 
-# --- Panel b: Forest (physical/cog/metabolic) ---
+# --- Panel b: Forest (physical / cognitive / energetic) ---
 p_b <- ggplot(
   std_main,
   aes(x=beta, y=outcome_label,
@@ -857,6 +924,12 @@ p_b <- ggplot(
            label="Q1 (ref)", size=2.3,
            color="grey40", hjust=0, vjust=1.5,
            fontface="italic") +
+  # ── P-for-trend  ────────
+annotate("text", x=0.88, y=8.28,
+         label="P for trend < 0.001 for all outcomes",
+         size=2.4, color="grey25",
+         hjust=1, vjust=0.5,
+         fontface="italic") +
   geom_errorbarh(
     aes(xmin=beta_lo, xmax=beta_hi,
         color=domain),
@@ -869,7 +942,7 @@ p_b <- ggplot(
   ) +
   geom_text(
     data=domain_label_df,
-    aes(x=0.82, y=y, label=label,
+    aes(x=0.88, y=y, label=label,
         color=I(color)),
     hjust=1, size=2.2, lineheight=0.85,
     fontface="bold", inherit.aes=FALSE
@@ -888,6 +961,8 @@ p_b <- ggplot(
     limits=c(-0.9,0.9),
     labels=function(x) sprintf("%.1f",x)
   ) +
+  # ── FIX
+scale_y_discrete() +
   labs(title="b",
        x="Adjusted difference vs. Q1 (outcome SD units)",
        y=NULL) +
@@ -896,7 +971,7 @@ p_b <- ggplot(
   theme(
     plot.title         = element_text(
       face="bold", size=10, hjust=0),
-    axis.text.y        = element_text(size=8.5),
+    axis.text.y        = axis_y_elem,
     legend.position    = "bottom",
     legend.direction   = "horizontal",
     legend.text        = element_text(size=7.5),
@@ -910,7 +985,7 @@ p_b <- ggplot(
     plot.margin        = margin(3,5,3,0,"mm")
   )
 
-# --- Panel c: Biomarker (revised) ---
+# --- Panel c: Biomarker ---
 p_c <- ggplot(
   std_bio,
   aes(x=beta, y=outcome_label,
@@ -957,7 +1032,7 @@ p_c <- ggplot(
   theme(
     plot.title         = element_text(
       face="bold", size=9, hjust=0),
-    axis.text.y        = element_text(size=8.5),
+    axis.text.y        = axis_y_elem,
     legend.position    = "none",
     panel.grid.minor   = element_blank(),
     panel.grid.major.y = element_blank(),
@@ -972,7 +1047,6 @@ legend_b <- cowplot::get_legend(
               legend.direction="horizontal"))
 legend_a <- cowplot::get_legend(
   p_a + theme(legend.position="bottom"))
-
 left_top <- cowplot::plot_grid(
   p_a + theme(legend.position="none"),
   legend_a, ncol=1, rel_heights=c(1,0.15))
@@ -983,12 +1057,10 @@ left_col <- cowplot::plot_grid(
 right_col <- cowplot::plot_grid(
   p_b + theme(legend.position="none"),
   legend_b, ncol=1, rel_heights=c(1,0.08))
-
 fig2_body <- cowplot::plot_grid(
   left_col, right_col,
   ncol=2, rel_widths=c(0.32,0.68))
-
-fig2_v8 <- cowplot::plot_grid(
+fig2_v9 <- cowplot::plot_grid(
   fig2_body,
   cowplot::ggdraw() +
     cowplot::draw_label(
@@ -1003,12 +1075,12 @@ fig2_v8 <- cowplot::plot_grid(
       fontface="plain"),
   ncol=1, rel_heights=c(1,0.06))
 
-png("results/Fig2_v8.png",
+png("results_v14/Fig2_v9.png",
     width=220/25.4, height=150/25.4,
     units="in", res=300)
-print(fig2_v8)
+print(fig2_v9)
 dev.off()
-cat("Saved: results/Fig2_v8.png\n")
+cat("Saved: results_v14/Fig2_v9.png\n")
 
 # --- Sensitivity: + GDF-15 / + CysC ---
 make_std_df <- function(extra_str="",
@@ -1032,7 +1104,7 @@ make_std_df <- function(extra_str="",
           "Physical performance",
         outcome %in% c("Digit","VF") ~
           "Cognitive & frailty",
-        TRUE ~ "Mitochondrial function"),
+        TRUE ~ DOMAIN_ENERGY),          # <- CHANGE 2
       outcome_label = factor(
         outcome_label,
         levels=rev(outcome_order))
@@ -1075,7 +1147,7 @@ make_forest_b <- function(df, title_lbl,
     ) +
     geom_text(
       data=domain_label_df,
-      aes(x=0.82, y=y, label=label,
+      aes(x=0.88, y=y, label=label,
           color=I(color)),
       hjust=1, size=2.2, lineheight=0.85,
       fontface="bold", inherit.aes=FALSE
@@ -1104,6 +1176,7 @@ make_forest_b <- function(df, title_lbl,
       limits=c(-0.9,0.9),
       labels=function(x) sprintf("%.1f",x)
     ) +
+    scale_y_discrete() +                # <- FIX 
     labs(title=title_lbl, subtitle=sub_txt,
          x="Adjusted difference vs. Q1 (outcome SD units)",
          y=NULL) +
@@ -1114,8 +1187,7 @@ make_forest_b <- function(df, title_lbl,
         face="bold", size=10, hjust=0),
       plot.subtitle      = element_text(
         size=7.5, color="grey40"),
-      axis.text.y        = element_text(
-        size=8.5),
+      axis.text.y        = axis_y_elem,
       legend.position    = "bottom",
       legend.direction   = "horizontal",
       legend.text        = element_text(
@@ -1157,17 +1229,16 @@ fig_b_v3 <- make_forest_b(std_v3, "b",
                           "Adjusted: base + Cystatin-C (continuous)")
 
 save_fig(fig_b_v1,
-         "results/Fig2_panel_b_base.png")
+         "results_v14/Fig2_panel_b_base.png")
 save_fig(fig_b_v2,
-         "results/Fig2_panel_b_GDF15.png")
+         "results_v14/Fig2_panel_b_GDF15.png")
 save_fig(fig_b_v3,
-         "results/Fig2_panel_b_CysC.png")
+         "results_v14/Fig2_panel_b_CysC.png")
 
 leg_shared <- cowplot::get_legend(
   fig_b_v1 + theme(
     legend.position="bottom",
     legend.direction="horizontal"))
-
 fig2_sensitivity <- cowplot::plot_grid(
   cowplot::plot_grid(
     fig_b_v1 + theme(
@@ -1182,19 +1253,18 @@ fig2_sensitivity <- cowplot::plot_grid(
     ncol=3),
   leg_shared,
   ncol=1, rel_heights=c(1,0.08))
-
-png("results/Fig2_sensitivity_3panel.png",
+png("results_v14/Fig2_sensitivity_3panel.png",
     width=330/25.4, height=130/25.4,
     units="in", res=300)
 print(fig2_sensitivity)
 dev.off()
-cat("Saved: results/Fig2_sensitivity_3panel.png\n")
+cat("Saved: results_v14/Fig2_sensitivity_3panel.png\n")
 
+# --- Supplementary Figure 1 (2-panel) ---
 std_v1 <- make_std_df("",          "Base")
 std_v2 <- make_std_df("GDF15_std", "Base + GDF-15")
 std_v3 <- make_std_df("CysC_std",  "Base + Cystatin-C")
 
-# v1
 fig_b_v1 <- make_forest_b(std_v1, NULL,
                           "Adjusted: age, sex, site, height, weight")
 fig_b_v2 <- make_forest_b(std_v2, "a",
@@ -1202,19 +1272,17 @@ fig_b_v2 <- make_forest_b(std_v2, "a",
 fig_b_v3 <- make_forest_b(std_v3, "b",
                           "Adjusted: base + Cystatin-C (continuous)")
 
-# 
 save_fig(fig_b_v2,
-         "results/Fig2_panel_b_GDF15.png")
+         "results_v14/Fig2_panel_b_GDF15.png")
 save_fig(fig_b_v3,
-         "results/Fig2_panel_b_CysC.png")
+         "results_v14/Fig2_panel_b_CysC.png")
 
-# 
 leg_shared <- cowplot::get_legend(
   fig_b_v1 + theme(
     legend.position="bottom",
     legend.direction="horizontal"))
 
-# GDF-15 / Cystatin-C adujsted panels
+# GDF-15 / Cystatin-C adjusted panels
 fig2_sensitivity <- cowplot::plot_grid(
   cowplot::plot_grid(
     fig_b_v2 + theme(
@@ -1226,29 +1294,20 @@ fig2_sensitivity <- cowplot::plot_grid(
     ncol=2),
   leg_shared,
   ncol=1, rel_heights=c(1,0.08))
-
-png("results/FigS_sensitivity_2panel.png",
+png("results_v14/FigS_sensitivity_2panel.png",
     width=220/25.4, height=130/25.4,
     units="in", res=300)
 print(fig2_sensitivity)
 dev.off()
-cat("Saved: results/FigS_sensitivity_2panel.png\n")
+cat("Saved: results_v14/FigS_sensitivity_2panel.png\n")
 
 # =============================================================================
 # Supplementary Figure 2: Age-unweighted DISCO 
 # =============================================================================
 
-# =============================================================================
-# SUPPLEMENTARY FIGURE — Unweighted DISCO
-#   Panel a: correlation between weighted and unweighted DISCO
-#   Panel b: association of UNWEIGHTED-DISCO quartiles with cross-sectional
-#            outcomes — SAME forest format as main-text Figure 2b
-# Only difference vs. Fig 2b: quartiles come from unweighted DISCO.
-# =============================================================================
-
 library(dplyr); library(ggplot2); library(cowplot); library(readr)
 
-out_dir <- "results"; dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+out_dir <- "results_v14"; dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---- 0. Merge unweighted DISCO into the analysis data `m` -------------------
 # `m` is the same analysis data frame used for Figure 2 (weighted BOX_DISCO_JR
@@ -1298,20 +1357,42 @@ outcomes_all <- list(
   Digit = "DSCORR", VF = "FT0V2FN", OxPhos = "REMOXPHOS", CCR = "TTSSPKVO2",
   GDF15 = "SOGDF15", CysC = "SOCYSC"
 )
+
+# ── CHANGE 1: "VO2 peak" -> "VO2peak"  ─────────────────────────────
+
+use_md <- requireNamespace("ggtext", quietly = TRUE)
+
+lab_vo2  <- if (use_md) "VO<sub>2</sub>peak (mL/min)" else
+  "VO\u2082peak (mL/min)"
+lab_dsst <- if (use_md)
+  "DSST score (0-133)<br>(Lower = poorer cognition)" else
+    "DSST score (0-133)\n(Lower = poorer cognition)"
+lab_vf   <- if (use_md)
+  "Vigor-to-Frailty (0-12)<br>(Higher = more frail)" else
+    "Vigor-to-Frailty (0-12)\n(Higher = more frail)"
+
+# y element (element_markdown)
+axis_y_elem <- if (use_md)
+  ggtext::element_markdown(size = 8.5, lineheight = 0.95) else
+    element_text(size = 8.5)
+
 outcome_labels <- c(
-  VO2 = "VO\u2082 peak (mL/min)", Speed = "Walking speed (m/s)",
+  VO2 = lab_vo2, Speed = "Walking speed (m/s)",
   Power = "Leg peak power (W)", Steps = "Daily step count",
-  Digit = "DSST score (0-133)\n(Lower = poorer cognition)",
-  VF = "Vigor-to-Frailty (0-12)\n(Higher = more frail)",
+  Digit = lab_dsst,
+  VF = lab_vf,
   OxPhos = "Max OxPhos (pmol/s/mg)", CCR = "Cost-capacity ratio (%)",
   GDF15 = "GDF-15 (log)", CysC = "Cystatin-C (log)"
 )
 outcome_order <- c(
-  "VO\u2082 peak (mL/min)", "Walking speed (m/s)", "Leg peak power (W)",
-  "Daily step count", "DSST score (0-133)\n(Lower = poorer cognition)",
-  "Vigor-to-Frailty (0-12)\n(Higher = more frail)",
+  lab_vo2, "Walking speed (m/s)", "Leg peak power (W)",
+  "Daily step count", lab_dsst,
+  lab_vf,
   "Max OxPhos (pmol/s/mg)", "Cost-capacity ratio (%)"
 )
+
+# ── CHANGE 2: "Mitochondrial function" -> "Energetic capacity & efficiency" ──
+DOMAIN_ENERGY <- "Energetic capacity & efficiency"
 
 std_df2 <- lapply(names(outcomes_all), function(nm) {
   d <- get_std_beta(outcomes_all[[nm]], m_unw); d$outcome <- nm; d
@@ -1322,7 +1403,7 @@ std_df2 <- lapply(names(outcomes_all), function(nm) {
     domain = dplyr::case_when(
       outcome %in% c("VO2", "Speed", "Power", "Steps") ~ "Physical performance",
       outcome %in% c("Digit", "VF")                    ~ "Cognitive & frailty",
-      outcome %in% c("OxPhos", "CCR")                  ~ "Mitochondrial function",
+      outcome %in% c("OxPhos", "CCR")                  ~ DOMAIN_ENERGY,   # <- CHANGE 2
       TRUE                                             ~ "Biomarker"),
     outcome_label = outcome_labels[outcome],
     outcome_label = factor(outcome_label,
@@ -1332,22 +1413,23 @@ std_df2 <- lapply(names(outcomes_all), function(nm) {
 cat("=== Unweighted-DISCO Std beta, Q4 vs Q1 ===\n")
 std_df2 |> dplyr::filter(quartile == 4) |>
   dplyr::select(outcome, beta, beta_lo, beta_hi, p_value) |>
-  dplyr::mutate(dplyr::across(c(beta, beta_lo, beta_hi), round, 3),
+  dplyr::mutate(dplyr::across(c(beta, beta_lo, beta_hi), \(x) round(x, 3)),
                 p_value = round(p_value, 4)) |>
   as.data.frame() |> print()
 
 # ---- 3. Aesthetics (identical to Figure 2) ----------------------------------
-domain_colors <- c("Physical performance" = "#0F6E56",
-                   "Cognitive & frailty"  = "#534AB7",
-                   "Mitochondrial function" = "#BA7517")
+domain_colors <- c("Physical performance"            = "#0F6E56",
+                   "Cognitive & frailty"             = "#534AB7",
+                   "Energetic capacity & efficiency" = "#BA7517")  # <- CHANGE 2
 q_colors_main <- c("Q2" = "#74C476", "Q3" = "#FD8D3C", "Q4" = "#D73027")
 q_shapes_v5   <- c("Q2" = 21, "Q3" = 24, "Q4" = 23)
 q_colors_scatter <- c("1" = "#4575B4", "2" = "#74C476", "3" = "#FD8D3C", "4" = "#D73027")
 
 domain_label_df <- data.frame(
   y = c(1.5, 3.5, 6.5),
-  label = c("Mitochondrial\nfunction", "Cognitive &\nfrailty", "Physical\nperformance"),
-  color = unname(domain_colors[c("Mitochondrial function", "Cognitive & frailty",
+  label = c("Energetic capacity\n& efficiency",      # <- CHANGE 2
+            "Cognitive &\nfrailty", "Physical\nperformance"),
+  color = unname(domain_colors[c(DOMAIN_ENERGY, "Cognitive & frailty",
                                  "Physical performance")])
 )
 
@@ -1409,7 +1491,7 @@ p_b <- ggplot(std_main,
                  height = 0, linewidth = 0.55, position = position_dodge(width = 0.65)) +
   geom_point(aes(color = domain), size = 2.3, stroke = 0.5,
              position = position_dodge(width = 0.65)) +
-  geom_text(data = domain_label_df, aes(x = 0.82, y = y, label = label, color = I(color)),
+  geom_text(data = domain_label_df, aes(x = 0.88, y = y, label = label, color = I(color)),
             hjust = 1, size = 2.2, lineheight = 0.85, fontface = "bold", inherit.aes = FALSE) +
   scale_color_manual(values = domain_colors, guide = "none") +
   shared_shape_b + shared_fill_b +
@@ -1417,11 +1499,12 @@ p_b <- ggplot(std_main,
          fill = guide_legend(nrow = 1)) +
   scale_x_continuous(breaks = seq(-0.8, 0.8, 0.2), limits = c(-0.9, 0.9),
                      labels = function(x) sprintf("%.1f", x)) +
+  scale_y_discrete() +                      # <- CHANGE 3 (scale 오류 방지)
   labs(title = "b", x = "Adjusted difference vs. Q1 (outcome SD units)", y = NULL) +
   coord_cartesian(clip = "off") +
   theme_bw(base_size = 9) +
   theme(plot.title = element_text(face = "bold", size = 10, hjust = 0),
-        axis.text.y = element_text(size = 8.5),
+        axis.text.y = axis_y_elem,          # <- CHANGE 1 (markdown 라벨)
         legend.position = "bottom", legend.direction = "horizontal",
         legend.text = element_text(size = 7.5),
         legend.title = element_text(size = 8, face = "bold"),
@@ -1439,7 +1522,6 @@ left_col <- cowplot::plot_grid(
   p_a + theme(legend.position = "none"), legend_a, ncol = 1, rel_heights = c(1, 0.18))
 right_col <- cowplot::plot_grid(
   p_b + theme(legend.position = "none"), legend_b, ncol = 1, rel_heights = c(1, 0.08))
-
 fig_body <- cowplot::plot_grid(left_col, right_col, ncol = 2, rel_widths = c(0.34, 0.66))
 
 supp_fig <- cowplot::plot_grid(
@@ -1462,14 +1544,13 @@ ggsave(file.path(out_dir, "SuppFig_unweighted_DISCO.pdf"), supp_fig,
 readr::write_csv(std_df2, file.path(out_dir, "SuppFig_unweighted_DISCO_stdbeta.csv"))
 cat("Saved: SuppFig_unweighted_DISCO.png / .pdf  +  _stdbeta.csv\n")
 
-
 # =============================================================================
 # FIGURE 3: ORGAN SPECIFIC ENTROPY AND OUTCOMES & SUPPLEMENTARY FIGURE 3
 # =============================================================================
 library(tidyverse)
 library(survival)
 
-# ── 0. Common settings ──────────────────────────────────────────────
+# ── 0.  ──────────────────────────────────────────────
 organs <- c("blood","bone","brain","heart",
             "kidney","liver","lung",
             "lymphoid","skeletal")
@@ -1481,8 +1562,17 @@ organ_order <- c(
   "Skeletal\nMuscle"
 )
 
+# ── CHANGE: "VO2 peak" -> "VO2peak" ───────────────
+
+use_md  <- requireNamespace("ggtext", quietly = TRUE)
+lab_vo2 <- if (use_md) "VO<sub>2</sub>peak (mL/min)" else
+  "VO\u2082peak (mL/min)"
+axis_y_elem <- if (use_md)
+  ggtext::element_markdown(size = 8.5, color = "black") else
+    ggplot2::element_text(size = 8.5, color = "black")
+
 outcome_order_fig <- c(
-  "VO\u2082 peak (mL/min)",
+  lab_vo2,                            # <- CHANGE
   "Walking speed (m/s)",
   "Leg peak power (W)",
   "Daily step count",
@@ -1506,7 +1596,7 @@ outcomes_cont <- list(
 )
 
 outcome_labels_tbl <- c(
-  VO2    = "VO\u2082 peak (mL/min)",
+  VO2    = lab_vo2,                   # <- CHANGE
   Speed  = "Walking speed (m/s)",
   Power  = "Leg peak power (W)",
   Steps  = "Daily step count",
@@ -1523,7 +1613,7 @@ col_higher <- "#C0392B"
 col_lower  <- "#2471A3"
 alpha_sig  <- 0.88
 
-dir.create("results", showWarnings=FALSE)
+dir.create("results_v14", showWarnings=FALSE)
 
 # ── 1. BOX  ─────────────────────
 organ_box_raw <- readr::read_csv(
@@ -1531,7 +1621,7 @@ organ_box_raw <- readr::read_csv(
   show_col_types=FALSE
 )
 
-# quartile/continuous 
+# quartile/continuous
 q_vars_box    <- paste0("BOX_DISCO_JR_Q_", organs)
 cont_vars_box <- paste0("BOX_DISCO_JR_", organs)
 
@@ -1555,7 +1645,7 @@ analysis_df <- meta_df |>
       sd(BOX_DISCO_JR, na.rm=TRUE)
   )
 
-# quartile factor 
+# quartile factor
 for (qv in q_vars_box) {
   analysis_df[[qv]] <- factor(
     analysis_df[[qv]], levels=1:4)
@@ -1574,7 +1664,6 @@ for (organ_nm in organs) {
 cat("Analysis n =", nrow(analysis_df), "\n")
 
 # ── 2. Helper  ────────────────────────────────────────────
-
 # 2a. Quartile β (Q2/Q3/Q4 vs Q1)
 get_beta_all_q <- function(outcome_var, q_var,
                            data, extra="",
@@ -1695,7 +1784,6 @@ results_baseline_df <- dplyr::bind_rows(
                                "Higher","Lower"),
     abs_beta  = abs(beta)
   )
-
 cat("Baseline rows:", nrow(results_baseline_df), "\n")
 
 # ── 4. Continuous β (BOX) ───────────────────────────────
@@ -1740,7 +1828,6 @@ results_cont_df <- dplyr::bind_rows(
                                "Higher","Lower"),
     abs_beta  = abs(beta)
   )
-
 cat("Continuous rows:", nrow(results_cont_df), "\n")
 
 # ── 5. Full proteome quartile β (std_df2) ────────────────────
@@ -1781,8 +1868,7 @@ make_supp_data <- function(q) {
         outcome_label = factor(
           dplyr::recode(
             as.character(outcome_label),
-            "VO2 peak (mL/min)" =
-              "VO\u2082 peak (mL/min)"),
+            "VO2 peak (mL/min)" = lab_vo2),   # <- CHANGE
           levels=outcome_order_fig)
       )
   ) |>
@@ -1801,8 +1887,7 @@ cont_supp <- dplyr::bind_rows(
       organ_label   = "Full\nProteome",
       outcome_label = dplyr::recode(
         as.character(outcome_label),
-        "VO2 peak (mL/min)" =
-          "VO\u2082 peak (mL/min)")
+        "VO2 peak (mL/min)" = lab_vo2)        # <- CHANGE
     ),
   results_cont_df |>
     dplyr::filter(organ != "full") |>
@@ -1810,8 +1895,7 @@ cont_supp <- dplyr::bind_rows(
       organ_label   = recode_organ(organ),
       outcome_label = dplyr::recode(
         as.character(outcome_label),
-        "VO2 peak (mL/min)" =
-          "VO\u2082 peak (mL/min)")
+        "VO2 peak (mL/min)" = lab_vo2)        # <- CHANGE
     )
 ) |>
   dplyr::mutate(
@@ -1847,8 +1931,7 @@ dot_df <- dplyr::bind_rows(
       organ_label = recode_organ(organ),
       outcome_label = dplyr::recode(
         as.character(outcome_label),
-        "VO2 peak (mL/min)" =
-          "VO\u2082 peak (mL/min)")
+        "VO2 peak (mL/min)" = lab_vo2)        # <- CHANGE
     )
 ) |>
   dplyr::mutate(
@@ -1983,8 +2066,7 @@ p_dot_q234 <- ggplot2::ggplot(
     axis.text.x      = ggplot2::element_text(
       size=7.5, color="black", angle=35,
       hjust=1, lineheight=0.85),
-    axis.text.y      = ggplot2::element_text(
-      size=8.5, color="black"),
+    axis.text.y      = axis_y_elem,            # <- CHANGE
     axis.title.x     = ggplot2::element_text(
       size=9, margin=ggplot2::margin(t=10)),
     legend.position  = "bottom",
@@ -2005,11 +2087,11 @@ p_dot_q234 <- ggplot2::ggplot(
     size =ggplot2::guide_legend(order=2))
 
 ggplot2::ggsave(
-  "results/Fig_organ_dot_Q2Q3Q4_BOX.pdf",
+  "results_v14/Fig_organ_dot_Q2Q3Q4_BOX.pdf",
   plot=p_dot_q234, width=220, height=140,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Fig_organ_dot_Q2Q3Q4_BOX.png",
+  "results_v14/Fig_organ_dot_Q2Q3Q4_BOX.png",
   plot=p_dot_q234, width=220, height=140,
   units="mm", dpi=300)
 cat("Saved: Fig_organ_dot_Q2Q3Q4_BOX\n")
@@ -2024,7 +2106,7 @@ dot_cont_df <- results_cont_df |>
     organ_label   = factor(recode_organ(organ),
                            levels=organ_order),
     outcome_label = factor(
-      as.character(outcome_label),  
+      as.character(outcome_label),
       levels=outcome_order_fig),
     organ_num     = as.numeric(organ_label)
   ) |>
@@ -2106,8 +2188,8 @@ p_dot_cont <- ggplot2::ggplot(
       "(per 1-SD continuous)")
   ) +
   ggplot2::scale_y_discrete(    name   = NULL,
-                                limits = rev(outcome_order_fig)   
-  ) + 
+                                limits = rev(outcome_order_fig)
+  ) +
   ggplot2::labs(
     caption=paste0()
   ) +
@@ -2119,8 +2201,7 @@ p_dot_cont <- ggplot2::ggplot(
     axis.text.x      = ggplot2::element_text(
       size=7.5, color="black", angle=35,
       hjust=1, lineheight=0.85),
-    axis.text.y      = ggplot2::element_text(
-      size=8.5, color="black"),
+    axis.text.y      = axis_y_elem,            # <- CHANGE
     axis.title.x     = ggplot2::element_text(
       size=9, margin=ggplot2::margin(t=10)),
     legend.position  = "bottom",
@@ -2141,15 +2222,14 @@ p_dot_cont <- ggplot2::ggplot(
     size =ggplot2::guide_legend(order=2))
 
 ggplot2::ggsave(
-  "results/Fig_organ_dot_continuous_BOX.pdf",
+  "results_v14/Fig_organ_dot_continuous_BOX.pdf",
   plot=p_dot_cont, width=200, height=130,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Fig_organ_dot_continuous_BOX.png",
+  "results_v14/Fig_organ_dot_continuous_BOX.png",
   plot=p_dot_cont, width=200, height=130,
   units="mm", dpi=300)
 cat("Saved: Fig_organ_dot_continuous_BOX\n")
-
 
 cat("\n=== complete ===\n")
 cat("Exported files:\n")
@@ -2159,7 +2239,6 @@ cat("  Fig_organ_dot_continuous_BOX.png\n")
 # =============================================================================
 # FIX: organ-specific continuous DISCO variable- analysis_df re-join
 # =============================================================================
-
 # 1) Continuous DISCO omit recheck
 cont_vars_box <- paste0("BOX_DISCO_JR_", organs)
 missing_cont <- setdiff(cont_vars_box, names(analysis_df))
@@ -2182,10 +2261,9 @@ if (length(missing_cont) > 0) {
 # =============================================================================
 # FIX 2: BOX_DISCO_STD (full proteome standardized) var recreate
 # =============================================================================
-
 # Full proteome standardized var recreate
-analysis_df$BOX_DISCO_STD <- 
-  (analysis_df$BOX_DISCO_JR - 
+analysis_df$BOX_DISCO_STD <-
+  (analysis_df$BOX_DISCO_JR -
      mean(analysis_df$BOX_DISCO_JR, na.rm = TRUE)) /
   sd(analysis_df$BOX_DISCO_JR, na.rm = TRUE)
 
@@ -2200,7 +2278,7 @@ for (organ_nm in organs) {
   sv <- paste0(cv, "_std")
   if (cv %in% names(analysis_df)) {
     analysis_df[[sv]] <-
-      (analysis_df[[cv]] - 
+      (analysis_df[[cv]] -
          mean(analysis_df[[cv]], na.rm = TRUE)) /
       sd(analysis_df[[cv]], na.rm = TRUE)
   } else {
@@ -2212,11 +2290,9 @@ cat("\n=== Standardized var list ===\n")
 print(grep("_std$|BOX_DISCO_STD", names(analysis_df),
            value = TRUE))
 
-
 # =============================================================================
 #  Section (B) Figure 3b recalc
 # =============================================================================
-
 cat("\nRecomputing continuous β...\n")
 results_cont_list <- list()
 
@@ -2269,16 +2345,15 @@ fig3b_export <- results_cont_df |>
                 beta, beta_lo, beta_hi, p_value, n)
 
 write.csv(fig3b_export,
-          "results/Table_Fig3b_organ_outcome_continuous.csv",
+          "results_v14/Table_Fig3b_organ_outcome_continuous.csv",
           row.names = FALSE)
 cat("Saved: Table_Fig3b_organ_outcome_continuous.csv\n")
-
 
 # =============================================================================
 # 3b. Adjusted continuous-DISCO DEA (limma)  ->  Supplementary Table S2
 #   Model : aptamer_z ~ DISCO_z + age + sex + site   (age/sex/site adjusted)
 #   beta  : per 1-SD DISCO, in aptamer SD units (standardized coefficient)
-#   Output: results/DEA_lm_BOX_DISCO_adj.csv
+#   Output: results_v14/DEA_lm_BOX_DISCO_adj.csv
 #   Prereqs (Sections 2-3): prot_df, meta_df, mapping_tbl, anno_tbl
 # =============================================================================
 stopifnot(exists("prot_df"), exists("meta_df"),
@@ -2288,7 +2363,6 @@ stopifnot(exists("prot_df"), exists("meta_df"),
 mdat <- meta_df |>
   dplyr::mutate(SITE_f = factor(SITE)) |>
   dplyr::select(BOX_DISCO_JR, D1AGE2, EEFEMALE, SITE_f)
-
 keep <- stats::complete.cases(
   mdat[, c("BOX_DISCO_JR", "D1AGE2", "EEFEMALE", "SITE_f")])
 mdat <- mdat[keep, ]
@@ -2309,7 +2383,6 @@ design_adj <- model.matrix(
 colnames(design_adj)[2] <- "DISCO_z"
 
 fit_adj <- limma::lmFit(prot_mat_adj, design_adj) |> limma::eBayes()
-
 res_adj <- limma::topTable(fit_adj, coef = "DISCO_z",
                            number = Inf, sort.by = "P",
                            confint = TRUE)   # adds CI.L / CI.R
@@ -2339,7 +2412,7 @@ readr::write_csv(
     dplyr::select(original, SYMBOL, GENENAME, label,
                   beta, beta_lo, beta_hi,
                   t, P.Value, FDR, neg_log10_q, AveExpr),
-  "results/DEA_lm_BOX_DISCO_adj.csv"
+  "results_v14/DEA_lm_BOX_DISCO_adj.csv"
 )
 cat("Saved: DEA_lm_BOX_DISCO_adj.csv\n")
 
@@ -2367,7 +2440,7 @@ col_ns      <- "grey80"
 # 1. DEA data load
 # =============================================================
 dea_df <- readr::read_csv(
-  "results/DEA_lm_BOX_DISCO_adj.csv",
+  "results_v14/DEA_lm_BOX_DISCO_adj.csv",
   show_col_types=FALSE
 ) |>
   dplyr::mutate(
@@ -2580,7 +2653,7 @@ p_volcano <- ggplot2::ggplot(
 #             collapsed to gene level (strongest aptamer = max |t| per SYMBOL).
 #   Sets    : 50 MSigDB Hallmark gene sets (msigdbr, Homo sapiens, "H").
 #   Method  : clusterProfiler::GSEA (pre-ranked), BH FDR across Hallmark sets.
-#   Output  : results/GSEA_Hallmark_DISCO.csv   (all 50 pathways retained)
+#   Output  : results_v14/GSEA_Hallmark_DISCO.csv   (all 50 pathways retained)
 #   Prereqs : res_adj_anno from the S2 block (needs columns SYMBOL and t).
 # =============================================================================
 stopifnot(exists("res_adj_anno"),
@@ -2632,7 +2705,7 @@ gsea_out <- as.data.frame(gsea_res) |>
                 enrichmentScore, NES, pvalue, p.adjust, qvalue,
                 rank, leading_edge, core_enrichment)
 
-readr::write_csv(gsea_out, "results/GSEA_Hallmark_DISCO.csv")
+readr::write_csv(gsea_out, "results_v14/GSEA_Hallmark_DISCO.csv")
 cat("Saved: GSEA_Hallmark_DISCO.csv  (", nrow(gsea_out), "Hallmark pathways )\n")
 
 # --- sanity checks vs. manuscript / Figure 4b expectations --------------------
@@ -2649,7 +2722,7 @@ cat("  top DOWN:", paste(head(rev(gsea_out$gs_label[gsea_out$NES < 0]), 3), coll
 # 4. GSEA data load
 # =============================================================
 gsea_raw <- readr::read_csv(
-  "results/GSEA_Hallmark_DISCO.csv",
+  "results_v14/GSEA_Hallmark_DISCO.csv",
   show_col_types=FALSE
 )
 
@@ -2786,11 +2859,11 @@ p_gsea <- ggplot2::ggplot(
 
 # GSEA single save
 ggplot2::ggsave(
-  "results/Fig_GSEA_Hallmark_DISCO.pdf",
+  "results_v14/Fig_GSEA_Hallmark_DISCO.pdf",
   plot=p_gsea, width=200, height=180,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Fig_GSEA_Hallmark_DISCO.png",
+  "results_v14/Fig_GSEA_Hallmark_DISCO.png",
   plot=p_gsea, width=200, height=180,
   units="mm", dpi=300)
 cat("Saved: Fig_GSEA_Hallmark_DISCO\n")
@@ -2821,12 +2894,12 @@ fig_combined <- p_volcano + p_gsea +
   )
 
 ggplot2::ggsave(
-  "results/Fig_volcano_GSEA_combined.pdf",
+  "results_v14/Fig_volcano_GSEA_combined.pdf",
   plot  = fig_combined,
   width = 380, height = 175,
   units = "mm", device = cairo_pdf)
 ggplot2::ggsave(
-  "results/Fig_volcano_GSEA_combined.png",
+  "results_v14/Fig_volcano_GSEA_combined.png",
   plot  = fig_combined,
   width = 380, height = 175,
   units = "mm", dpi   = 300)
@@ -2867,7 +2940,7 @@ col_dn <- "#2471A3"
 
 # ── A-1. Protein selection: Full DISCO DEA top 3% ──────────────────
 dea_df <- readr::read_csv(
-  "results/DEA_lm_BOX_DISCO_adj.csv",
+  "results_v14/DEA_lm_BOX_DISCO_adj.csv",
   show_col_types=FALSE
 ) |>
   dplyr::filter(!is.na(SYMBOL))
@@ -2907,7 +2980,7 @@ cat("UP:", sum(target_proteins$full_disco_dir=="UP"),
 
 # ── A-2. Organ × protein beta load  ───────────────────────────
 organ_beta_df <- readr::read_csv(
-  "results/Table_organ_protein_beta.csv",
+  "results_v14/Table_organ_protein_beta.csv",
   show_col_types=FALSE
 ) |>
   dplyr::filter(!is.na(SYMBOL))
@@ -3094,11 +3167,11 @@ p_heat_prot <- ggplot2::ggplot(
   )
 
 ggplot2::ggsave(
-  "results/Supp_Fig_organ_protein_heatmap.pdf",
+  "results_v14/Supp_Fig_organ_protein_heatmap.pdf",
   plot=p_heat_prot, width=190, height=250,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Supp_Fig_organ_protein_heatmap.png",
+  "results_v14/Supp_Fig_organ_protein_heatmap.png",
   plot=p_heat_prot, width=190, height=250,
   units="mm", dpi=300)
 cat("Saved: Supp_Fig_organ_protein_heatmap\n")
@@ -3110,12 +3183,12 @@ cat("Saved: Supp_Fig_organ_protein_heatmap\n")
 
 # ── B-1. data load ─────────────────────────────────────────
 gsea_full <- readr::read_csv(
-  "results/GSEA_Hallmark_DISCO.csv",
+  "results_v14/GSEA_Hallmark_DISCO.csv",
   show_col_types=FALSE
 )
 
 gsea_organ <- readr::read_csv(
-  "results/GSEA_organ_Hallmark.csv",
+  "results_v14/GSEA_organ_Hallmark.csv",
   show_col_types=FALSE
 )
 
@@ -3297,11 +3370,11 @@ p_heat_gsea <- ggplot2::ggplot(
   )
 
 ggplot2::ggsave(
-  "results/Supp_Fig_GSEA_organ_heatmap.pdf",
+  "results_v14/Supp_Fig_GSEA_organ_heatmap.pdf",
   plot=p_heat_gsea, width=220, height=180,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Supp_Fig_GSEA_organ_heatmap.png",
+  "results_v14/Supp_Fig_GSEA_organ_heatmap.png",
   plot=p_heat_gsea, width=220, height=180,
   units="mm", dpi=300)
 cat("Saved: Supp_Fig_GSEA_organ_heatmap\n")
@@ -3331,12 +3404,12 @@ supp_combined <- p_heat_prot + p_heat_gsea +
   )
 
 ggplot2::ggsave(
-  "results/Supp_Fig_organ_combined.pdf",
+  "results_v14/Supp_Fig_organ_combined.pdf",
   plot  = supp_combined,
   width = 420, height = 260,
   units = "mm", device = cairo_pdf)
 ggplot2::ggsave(
-  "results/Supp_Fig_organ_combined.png",
+  "results_v14/Supp_Fig_organ_combined.png",
   plot  = supp_combined,
   width = 420, height = 260,
   units = "mm", dpi   = 300)
@@ -3353,9 +3426,9 @@ library(survival)
 library(cowplot)
 library(scales)
 
-dir.create("results", showWarnings=FALSE)
+dir.create("results_v14", showWarnings=FALSE)
 
-# ── 0. Common settings ──────────────────────────────────────────────
+# ── 0. 공통 설정 ──────────────────────────────────────────────
 organs <- c("blood","bone","brain","heart",
             "kidney","liver","lung",
             "lymphoid","skeletal")
@@ -3634,7 +3707,7 @@ heat_df |>
   dplyr::arrange(model, organ_label,
                  quartile) |>
   readr::write_csv(
-    "results/Table_hosp_HR_BOX.csv")
+    "results_v14/Table_hosp_HR_BOX.csv")
 cat("Saved: Table_hosp_HR_BOX.csv\n")
 
 # =============================================================================
@@ -3683,7 +3756,7 @@ add_heat_geoms <- function(p) {
       fill="grey80", color="white",
       linewidth=0.6, width=0.95,
       height=0.95) +
-    # HR main
+    # HR 메인
     ggplot2::geom_text(
       data=\(d) dplyr::filter(d, HR >= 1),
       ggplot2::aes(label=hr_main,
@@ -3699,7 +3772,7 @@ add_heat_geoms <- function(p) {
                    y=y_ci),
       size=1.9, fontface="plain",
       vjust=0.5, alpha=0.85) +
-    # HR<1 main
+    # HR<1 메인
     ggplot2::geom_text(
       data=\(d) dplyr::filter(d, HR < 1),
       ggplot2::aes(label=hr_main, y=y_main),
@@ -3965,17 +4038,17 @@ fig_main <- cowplot::plot_grid(
       fill="white", color=NA))
 
 ggplot2::ggsave(
-  "results/Fig_hosp_KM_heatmap_BOX.pdf",
+  "results_v14/Fig_hosp_KM_heatmap_BOX.pdf",
   plot=fig_main, width=260, height=170,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Fig_hosp_KM_heatmap_BOX.png",
+  "results_v14/Fig_hosp_KM_heatmap_BOX.png",
   plot=fig_main, width=260, height=170,
   units="mm", dpi=300)
 cat("Saved: Fig_hosp_KM_heatmap_BOX\n")
 
 # =============================================================================
-# 8. Sensitivity HR (Base+GDF15, Base+CysC)
+# 8. Supplementary Figure 5. Sensitivity HR (Base+GDF15, Base+CysC)
 # =============================================================================
 cat("Computing sensitivity HR (BOX)...\n")
 
@@ -4080,7 +4153,7 @@ p_cysc <- make_heat_sens(
   heat_df_sens, "Base + CysC",
   show_y=FALSE)
 
-# shared legend
+# 공유 legend
 leg_sens <- cowplot::get_legend(
   make_heat_sens(
     heat_df_sens, "Base + GDF-15",
@@ -4126,17 +4199,17 @@ fig_sens <- cowplot::plot_grid(
       fill="white", color=NA))
 
 ggplot2::ggsave(
-  "results/Supp_Fig_hosp_HR_sensitivity_BOX.pdf",
+  "results_v14/Supp_Fig_hosp_HR_sensitivity_BOX.pdf",
   plot=fig_sens, width=260, height=170,
   units="mm", device=cairo_pdf)
 ggplot2::ggsave(
-  "results/Supp_Fig_hosp_HR_sensitivity_BOX.png",
+  "results_v14/Supp_Fig_hosp_HR_sensitivity_BOX.png",
   plot=fig_sens, width=260, height=170,
   units="mm", dpi=300)
 cat("Saved: Supp_Fig_hosp_HR_sensitivity_BOX\n")
 
-cat("\n=== done ===\n")
-cat("output files:\n")
+cat("\n=== 완료 ===\n")
+cat("출력 파일:\n")
 cat("  Fig_hosp_KM_heatmap_BOX.png\n")
 cat("  Supp_Fig_hosp_HR_sensitivity_BOX.png\n")
 cat("  Table_hosp_HR_BOX.csv\n")
@@ -4179,7 +4252,7 @@ cat("Range: ",
 
 
 # =============================================================
-# DISCO (weighted) and DISCO (unweighted) comparison - Supplementary Figure 2
+# DISCO (weighted) and DISCO (unweighted) comparison 
 # =============================================================
 library(readr); library(dplyr)
 
@@ -4215,6 +4288,7 @@ abline(lm(y ~ x), col = "red", lwd = 2)
 
 
 # =============================================================================
+# Supplementary Figure 6
 # SENSITIVITY: adding M1ANMEDS_LOG (log medication count) to the BASE model - Supplementary Figure 6
 #   Figure a  — phenotype-association forest, SAME format as Figure 2 (panel b)
 #               weighted-DISCO quartiles, base + M1ANMEDS_LOG
@@ -4228,10 +4302,14 @@ abline(lm(y ~ x), col = "red", lwd = 2)
 #   From Fig 5 : get_hr_all_q_box(), extract_hr_full(), tidy_hr(),
 #                add_heat_geoms(), heat_fill_scale, heat_color_scale, heat_theme,
 #                organ_order_heat, y_faces_heat, organs, base_cov, `analysis_df`.
+#
+#   [revision]
+#     1) "VO2 peak" -> "VO2peak"
+#     2) "Mitochondrial function" -> "Energetic capacity & efficiency"
 # =============================================================================
 
 library(dplyr); library(ggplot2); library(cowplot); library(readr); library(survival)
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("results_v14", showWarnings = FALSE, recursive = TRUE)
 
 # ---- 0. Load M1ANMEDS_LOG and merge into both analysis frames ---------------
 meds <- readr::read_csv("02_box_transformed_data_with_pheno.csv", show_col_types = FALSE) |>
@@ -4241,11 +4319,65 @@ meds <- readr::read_csv("02_box_transformed_data_with_pheno.csv", show_col_types
 add_meds <- function(d) {
   if ("M1ANMEDS_LOG" %in% names(d)) d else dplyr::left_join(d, meds, by = "ID")
 }
+
 stopifnot(exists("m"), exists("analysis_df"))
 m           <- add_meds(as.data.frame(m))
 analysis_df <- add_meds(as.data.frame(analysis_df))
 cat("M1ANMEDS_LOG merged. non-missing in m:",
     sum(!is.na(m$M1ANMEDS_LOG)), "/", nrow(m), "\n")
+
+# ---- 0b. label/domain name
+stopifnot(exists("outcome_labels"), exists("outcome_order"),
+          exists("make_forest_b"), exists("save_fig"))
+
+fix_vo2 <- function(x) sub("^VO(<sub>2</sub>|\u2082)[[:space:]]+peak", "VO\\1peak", x)
+outcome_labels[] <- fix_vo2(outcome_labels)
+outcome_order    <- fix_vo2(outcome_order)
+cat("VO2 label in use:", outcome_labels[["VO2"]], "\n")
+
+DOMAIN_ENERGY <- "Energetic capacity & efficiency"
+domain_colors <- c("Physical performance" = "#0F6E56",
+                   "Cognitive & frailty"  = "#534AB7")
+domain_colors[DOMAIN_ENERGY] <- "#BA7517"
+domain_label_df <- data.frame(
+  y     = c(1.5, 3.5, 6.5),
+  label = c("Energetic capacity\n& efficiency",
+            "Cognitive &\nfrailty",
+            "Physical\nperformance"),
+  color = unname(domain_colors[c(DOMAIN_ENERGY, "Cognitive & frailty",
+                                 "Physical performance")])
+)
+cat("3rd domain name:", DOMAIN_ENERGY, "\n")
+
+# ---- 0c. get_std_beta 
+get_std_beta_w <- function(outcome_var, data, extra_str = "",
+                           q_var = "BOX_DISCO_JR_Q") {
+  stopifnot(q_var %in% names(data))
+  sd_out <- sd(data[[outcome_var]], na.rm = TRUE)
+  data2  <- data |>
+    dplyr::filter(!is.na(.data[[outcome_var]])) |>
+    dplyr::mutate(
+      Q_fac     = factor(.data[[q_var]], levels = 1:4),
+      GDF15_std = (SOGDF15 - mean(SOGDF15, na.rm = TRUE)) / sd(SOGDF15, na.rm = TRUE),
+      CysC_std  = (SOCYSC  - mean(SOCYSC,  na.rm = TRUE)) / sd(SOCYSC,  na.rm = TRUE)
+    )
+  base_cov_lm <- "D1AGE2 + EEFEMALE + SITE + HWWGT + HWHGT"
+  fml <- as.formula(paste0(
+    outcome_var, " ~ Q_fac + ", base_cov_lm,
+    if (nchar(extra_str) > 0) paste0(" + ", extra_str) else ""))
+  fit      <- lm(fml, data = data2)
+  coef_tbl <- as.data.frame(summary(fit)$coefficients)
+  coef_tbl$term <- rownames(coef_tbl)
+  q_rows <- coef_tbl |> dplyr::filter(grepl("Q_fac[234]", term))
+  data.frame(
+    quartile = c(2, 3, 4),
+    beta     = q_rows$Estimate / sd_out,
+    beta_lo  = (q_rows$Estimate - 1.96 * q_rows$`Std. Error`) / sd_out,
+    beta_hi  = (q_rows$Estimate + 1.96 * q_rows$`Std. Error`) / sd_out,
+    p_value  = q_rows$`Pr(>|t|)`,
+    sd_out   = sd_out
+  )
+}
 
 # =============================================================================
 # FIGURE a — phenotype forest (Fig 2 panel-b format), base + M1ANMEDS_LOG
@@ -4257,7 +4389,7 @@ outcomes_a <- list(
 
 # Build std with the SAME domain names used by domain_colors (correct colors).
 std_med_a <- lapply(names(outcomes_a), function(nm) {
-  d <- get_std_beta(outcomes_a[[nm]], m, extra_str = "M1ANMEDS_LOG")   # <- extra covariate
+  d <- get_std_beta_w(outcomes_a[[nm]], m, extra_str = "M1ANMEDS_LOG")  # <- 가중 DISCO + 약물 보정
   d$outcome <- nm; d
 }) |>
   dplyr::bind_rows() |>
@@ -4266,22 +4398,21 @@ std_med_a <- lapply(names(outcomes_a), function(nm) {
     domain = dplyr::case_when(
       outcome %in% c("VO2", "Speed", "Power", "Steps") ~ "Physical performance",
       outcome %in% c("Digit", "VF")                    ~ "Cognitive & frailty",
-      TRUE                                             ~ "Mitochondrial function"),
-    outcome_label = outcome_labels[outcome],
+      TRUE                                             ~ DOMAIN_ENERGY),  # <- CHANGE 2
+    outcome_label = outcome_labels[outcome],       # <- VO2peak 자동 적용
     outcome_label = factor(outcome_label, levels = rev(outcome_order))
   )
 
 cat("\n=== Figure a: std beta Q4 vs Q1 (base + M1ANMEDS_LOG) ===\n")
 std_med_a |> dplyr::filter(quartile == 4) |>
   dplyr::select(outcome, beta, beta_lo, beta_hi, p_value) |>
-  dplyr::mutate(dplyr::across(c(beta, beta_lo, beta_hi), round, 3),
+  dplyr::mutate(dplyr::across(c(beta, beta_lo, beta_hi), \(x) round(x, 3)),
                 p_value = round(p_value, 4)) |>
   as.data.frame() |> print()
 
 fig_a <- make_forest_b(std_med_a, "a",
                        "Adjusted: age, sex, site, height, weight + medication count (log)")
-
-save_fig(fig_a, "results/FigS_pheno_forest_meds.png", w = 130, h = 140)
+save_fig(fig_a, "results_v14/FigS_pheno_forest_meds.png", w = 130, h = 140)
 
 # =============================================================================
 # FIGURE b — hospitalization Cox HR heatmap (Fig 5 sensitivity format)
@@ -4313,7 +4444,7 @@ heat_df_med <- dplyr::bind_rows(
 cat("\n=== Figure b: Cox HR (Q4), base + M1ANMEDS_LOG ===\n")
 heat_df_med |> dplyr::filter(quartile == "Q4") |>
   dplyr::select(organ_label, HR, lo, hi, sig_label) |>
-  dplyr::mutate(dplyr::across(c(HR, lo, hi), round, 2)) |>
+  dplyr::mutate(dplyr::across(c(HR, lo, hi), \(x) round(x, 2))) |>
   as.data.frame() |> print()
 
 # single heatmap panel (mirrors make_heat_sens with show_y = TRUE)
@@ -4349,16 +4480,16 @@ fig_b <- cowplot::plot_grid(
   ncol = 1, rel_heights = c(1, 0.06)) +
   ggplot2::theme(plot.background = ggplot2::element_rect(fill = "white", color = NA))
 
-ggplot2::ggsave("results/FigS_hosp_HR_meds.pdf", fig_b,
+ggplot2::ggsave("results_v14/FigS_hosp_HR_meds.pdf", fig_b,
                 width = 150, height = 170, units = "mm", device = cairo_pdf)
-ggplot2::ggsave("results/FigS_hosp_HR_meds.png", fig_b,
+ggplot2::ggsave("results_v14/FigS_hosp_HR_meds.png", fig_b,
                 width = 150, height = 170, units = "mm", dpi = 300)
 
 # CSV of the HR table
 heat_df_med |>
   dplyr::select(organ_label, quartile, HR, lo, hi, p, sig_label) |>
   dplyr::arrange(organ_label, quartile) |>
-  readr::write_csv("results/Table_hosp_HR_meds.csv")
+  readr::write_csv("results_v14/Table_hosp_HR_meds.csv")
 
 # =============================================================================
 # COMBINED — Figure a (forest) + Figure b (heatmap) in one panel
@@ -4388,12 +4519,10 @@ fig_ab <- cowplot::plot_grid(
   ncol = 1, rel_heights = c(1, 0.06)) +
   ggplot2::theme(plot.background = ggplot2::element_rect(fill = "white", color = NA))
 
-ggplot2::ggsave("results/FigS_meds_combined.pdf", fig_ab,
+ggplot2::ggsave("results_v14/FigS_meds_combined.pdf", fig_ab,
                 width = 300, height = 175, units = "mm", device = cairo_pdf)
-ggplot2::ggsave("results/FigS_meds_combined.png", fig_ab,
+ggplot2::ggsave("results_v14/FigS_meds_combined.png", fig_ab,
                 width = 300, height = 175, units = "mm", dpi = 300)
 
 cat("\nSaved: FigS_pheno_forest_meds.png | FigS_hosp_HR_meds.png/.pdf | ",
     "FigS_meds_combined.png/.pdf | Table_hosp_HR_meds.csv\n")
-
-
