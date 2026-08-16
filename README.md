@@ -1,8 +1,7 @@
 # Proteo-DISCO
 
 Analysis code for a proteomic characterization of **DISCO (Distance of
-Covariance)**, a Mahalanobis-distance-based multi-organ dysregulation
-entropy score, using SomaScan aptamer proteomics. Includes phenotype
+Covariance)**, using SomaScan aptamer proteomics. Includes phenotype
 associations, organ-specific decomposition, pathway enrichment, and
 hospitalization risk modeling.
 
