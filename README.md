@@ -222,7 +222,4 @@ DISCO = log<sub>10</sub>[ n<sub>ref</sub><sup>2</sup> · Σ<sub>i<j</sub> w<sub>
 
 This code is released under the [MIT License](LICENSE), an Open Source Initiative-approved license. The license covers the analysis code only; SOMMA study data are not distributed and remain subject to the study's data access policies.
 
-- **Tyler Mansfield**: data preparation, preprocessing, and entropy methods (scripts 01–03, `99_*`)
-- **Namki Hong**: analysis datasets, statistical analyses, and figures (scripts 04–09)
-
 Citation will be added upon publication.
